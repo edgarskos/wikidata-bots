@@ -22,11 +22,12 @@ DEBUG = False
 site = pywikibot.Site("et", "wikipedia")
 tpl = pywikibot.Page(site, u'Mall:EestiAsula')
 
+
 gen = pagegenerators.ReferringPageGenerator(tpl,
                             followRedirects=False,
                             withTemplateInclusion=True,
                             onlyTemplateInclusion=True)
-generator = pagegenerators.PreloadingGenerator(gen, pageNumber=10)
+generator = pagegenerators.PreloadingGenerator(gen, pageNumber=50)
 
 claims_rules = {
 ##### main type deprecated    107: 'q618123', # GDN = geo
@@ -49,18 +50,20 @@ def editclaim(article, pid, value):
         )
         logging.info('[[%s]]: modified claim p%s = %s' % (article, pid, value) )
     
-        time.sleep(15)
+        time.sleep(10)
 
 
 def editcoordinates(datapage, article, theclaim, latitude, longitude):
     assert latitude > 0
     assert longitude > 0
     
-    botflag = False
+    botflag = True
     propertyID = 625 #geo coordinates
     latitudeStr = "%.12f" % (latitude)
     longitudeStr = "%.12f" % (longitude)
-    value = "{\"latitude\":"  + latitudeStr  + ",\"longitude\":" + longitudeStr + "}"
+    precision = "0.00027777777777778"  #   1''
+    value = "{\"latitude\":"  + latitudeStr  + ",\"longitude\":" + longitudeStr + ",\"precision\":" + precision + ",\"globe\": \"http://www.wikidata.org/entity/Q2\" }"
+    print value
 
     if theclaim:
         params = {
@@ -106,7 +109,7 @@ def editcoordinates(datapage, article, theclaim, latitude, longitude):
         editrefs(datapage, guid, refhash, refs={('p143', 'q200060'),}) # from Estonian Wikipedia  
         logging.info('[[%s]]: added coordinates' % (article) )
 
-    time.sleep(15)
+    time.sleep(10)
 
 def getreference(datapage, guid, sysop=False):
         """Return first reference hash for claim
@@ -124,13 +127,19 @@ def getreference(datapage, guid, sysop=False):
         if not 'claims' in data:
             raise NoPage(datapage.site(), unicode(datapage),
                          "API query error, no pages found: %s" % data)
-        claimInfo = data['claims'].values()[0]
-        refhash = claimInfo[0]['references'][0]['hash']
+        try:
+            claimInfo = data['claims'].values()[0]
+            refhash = claimInfo[0]['references'][0]['hash']
+        except KeyError:
+            # Key is not present
+            refhash = ''
+            logging.info('[[%s]]: coords had no reference' % (datapage.title()) )
+                    
         return refhash
         
         
 def editrefs(datapage, guid, refhash='', refs=None): 
-        botflag = False
+        botflag = True
    
         if refs:
             snak = []
@@ -222,6 +231,11 @@ logging.basicConfig(format='%(asctime)s %(message)s')
 for page in generator:
     print page
 
+    if not page.exists():
+        print 'ERROR: NO CONTENT'
+        logging.warning('[[%s]]: couldnt get page content' % (page) )
+        continue
+        
     if page.namespace():
         print 'ERROR: NOT AN ARTICLE'
         continue
@@ -293,17 +307,21 @@ for page in generator:
         if DEBUG:
             print pageCoords
         
-        if len(wikidataCoords):
-            wikidatalatStr = "%.12f" % (wikidataCoords['latitude'])
-            wikidatalonStr = "%.12f" % (wikidataCoords['longitude'])
-        pagelatStr = "%.12f" % (pageCoords['lat'])
-        pagelonStr = "%.12f" % (pageCoords['lon'])
-        #modify coordinates?
-        if (len(wikidataCoords)==0 or wikidatalatStr != pagelatStr 
-            or wikidatalonStr != pagelonStr):                
+        if pageCoords['lat'] < 1 or pageCoords['lon'] < 1:
+            logging.warning('[[%s]]: couldnt read coordinates!' % (page.title()) )
+        else:
+            if len(wikidataCoords):
+                wikidatalatStr = "%.12f" % (wikidataCoords['latitude'])
+                wikidatalonStr = "%.12f" % (wikidataCoords['longitude'])
+            pagelatStr = "%.12f" % (pageCoords['lat'])
+            pagelonStr = "%.12f" % (pageCoords['lon'])
+            #modify coordinates?
+            if (len(wikidataCoords)==0 or wikidatalatStr != pagelatStr or
+                wikidatalonStr != pagelonStr):                
 
-            editcoordinates(data, page.title(), theclaim, pageCoords['lat'], pageCoords['lon'])
+                editcoordinates(data, page.title(), theclaim, pageCoords['lat'], pageCoords['lon'])
 
     else:
         print 'ERROR: NO DATA PAGE'
+        logging.warning('[[%s]]: no data page in Wikidata' % (page.title() ))
 
